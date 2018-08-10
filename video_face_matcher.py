@@ -55,7 +55,7 @@ def run_inference(image_to_classify, facenet_graph):
 
 ## Returns any detected face locations for a video frame
 def get_face_loc(vid_frame):
-    face_locations = face_recognition.face_locations(vid_frame)
+    face_locations = face_recognition.face_locations(vid_frame, model="cnn")
     print("I found {} face(s) in this photograph.".format(len(face_locations)))
     return face_locations
     
@@ -243,6 +243,20 @@ def run_camera(valid_output, validated_image_filename, graph):
         cv2.imshow(CV_WINDOW_NAME, vid_image)
         cv2.waitKey(0)
 
+def load_known_face_encodings(img_dir, graph):
+    known_face_enc={}
+    dir_listings = os.listdir(img_dir)
+    face_image_listings = [i for i in dir_listings if i.endswith('.jpg')]
+    if (len(face_image_listings) < 1):
+            print('No image files found')
+            return 1
+    for img in face_image_listings:
+        print(img)
+        img_name = img.split(".")[0]
+        img = cv2.imread(img_dir + img)
+        print("Loading face encoding of " + img_name)
+        known_face_enc[img_name] =  run_inference(img, graph)
+    return known_face_enc
 
 # This function is called from the entry point to do
 # all the work of the program
@@ -271,9 +285,11 @@ def main():
     # create the NCAPI graph instance from the memory buffer containing the graph file.
     graph = device.AllocateGraph(graph_in_memory)
 
-    validated_image = cv2.imread(validated_image_filename)
-    validated_image = preprocess_image(validated_image)
-    valid_output = run_inference(validated_image, graph)
+    # validated_image = cv2.imread(validated_image_filename)
+    # validated_image = preprocess_image(validated_image)
+    # valid_output = run_inference(validated_image, graph)
+
+    print(load_known_face_encodings(VALIDATED_IMAGES_DIR, graph))
 
     run_camera(valid_output, validated_image_filename, graph)
 
