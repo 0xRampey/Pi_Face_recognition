@@ -15,7 +15,8 @@ EXAMPLES_BASE_DIR='../../'
 IMAGES_DIR = './'
 
 VALIDATED_IMAGES_DIR = IMAGES_DIR + 'validated_images/'
-validated_image_filename = VALIDATED_IMAGES_DIR + 'prudhvi.jpg'
+FILENAME = 'prudhvi.jpg'
+validated_image_filename = VALIDATED_IMAGES_DIR + FILENAME
 
 GRAPH_FILENAME = "facenet_celeb_ncs.graph"
 
@@ -52,9 +53,14 @@ def run_inference(image_to_classify, facenet_graph):
 
     return output
 
-def get_faces(image):
-    face_locations = face_recognition.face_locations(image)
+## Returns any detected face locations for a video frame
+def get_face_loc(vid_frame):
+    face_locations = face_recognition.face_locations(vid_frame)
     print("I found {} face(s) in this photograph.".format(len(face_locations)))
+    return face_locations
+    
+## Extracts cropped face images from a video frame based on the face location coordinates given to it
+def extract_faces(vid_frame, face_locations):
     face_img_list=[]
     for face_location in face_locations:
 
@@ -63,35 +69,35 @@ def get_faces(image):
       print("A face is located at pixel location Top: {}, Left: {}, Bottom: {}, Right: {}".format(top, left, bottom, right))
 
       # You can access the actual face itself like this:
-      face_image = image[top-80:bottom+80, left-20:right+20]
+      face_image = vid_frame[top-80:bottom+80, left-20:right+20]
       face_img_list.append(face_image)
-
-    #Return only the first face for now
     return face_img_list
-    #   pil_image = Image.fromarray(face_image)
-    #   pil_image.show()
-
 
 # overlays the boxes and labels onto the display image.
 # display_image is the image on which to overlay to
 # image info is a text string to overlay onto the image.
 # matching is a Boolean specifying if the image was a match.
 # returns None
-def overlay_on_image(display_image, image_info, matching):
-    rect_width = 10
-    offset = int(rect_width/2)
+def overlay_on_image(display_image, face_locations, image_info, matching, face_name):
+    # rect_width = 10
+    # offset = int(rect_width/2)
     if (image_info != None):
         cv2.putText(display_image, image_info, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
     if (matching):
-        # match, green rectangle
-        cv2.rectangle(display_image, (0+offset, 0+offset),
-                      (display_image.shape[1]-offset-1, display_image.shape[0]-offset-1),
-                      (0, 255, 0), 10)
-    else:
-        # not a match, red rectangle
-        cv2.rectangle(display_image, (0+offset, 0+offset),
-                      (display_image.shape[1]-offset-1, display_image.shape[0]-offset-1),
-                      (0, 0, 255), 10)
+      for (top, right, bottom, left) in face_locations:
+
+        # Draw a box around the face
+        cv2.rectangle(display_image, (left, top), (right, bottom), (0, 0, 255), 2)
+
+        # Draw a label with a name below the face
+        cv2.rectangle(display_image, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
+        font = cv2.FONT_HERSHEY_DUPLEX
+        cv2.putText(display_image, face_name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
+    # else:
+    #     # not a match, red rectangle
+    #     cv2.rectangle(display_image, (0+offset, 0+offset),
+    #                   (display_image.shape[1]-offset-1, display_image.shape[0]-offset-1),
+    #                   (0, 0, 255), 10)
 
 
 # whiten an image
@@ -192,27 +198,31 @@ def run_camera(valid_output, validated_image_filename, graph):
         frame_count += 1
         frame_name = 'camera frame ' + str(frame_count)
 
-        #Display faces found in the image
-        face_images = get_faces(vid_image)
+        #Extract faces found in the image
+        face_locations = get_face_loc(vid_image)
+        face_images = extract_faces(vid_image, face_locations)
+
+        #Perform inference only when when you detect faces
         if(len(face_images)):
-          vid_image = face_images[0]
 
-        # get a resized version of the image that is the dimensions
-        # SSD Mobile net expects
-        resized_image = preprocess_image(vid_image)
+          # get a resized version of the image that is the dimensions
+          # Facenet expects
+          resized_image = preprocess_image(face_images[0])
 
-        # run a single inference on the image and overwrite the
-        # boxes and labels
-        test_output = run_inference(resized_image, graph)
+          # run a single inference on the image and overwrite the
+          # boxes and labels
+          test_output = run_inference(resized_image, graph)
 
-        if (face_match(valid_output, test_output)):
-            print('PASS!  File ' + frame_name + ' matches ' + validated_image_filename)
-            found_match = True
+          if (face_match(valid_output, test_output)):
+              print('PASS!  File ' + frame_name + ' matches ' + validated_image_filename)
+              found_match = True
+          else:
+              found_match = False
+              print('FAIL!  File ' + frame_name + ' does not match ' + validated_image_filename)
+
+          overlay_on_image(vid_image, face_locations, frame_name, found_match, FILENAME)
         else:
-            found_match = False
-            print('FAIL!  File ' + frame_name + ' does not match ' + validated_image_filename)
-
-        overlay_on_image(vid_image, frame_name, found_match)
+            print("No faces detected :(")
 
         # check if the window is visible, this means the user hasn't closed
         # the window via the X button
