@@ -28,7 +28,7 @@ REQUEST_CAMERA_HEIGHT = 480
 # the same face will return 0.0
 # different faces return higher numbers
 # this is NOT between 0.0 and 1.0
-FACE_MATCH_THRESHOLD = 0.85
+FACE_MATCH_THRESHOLD = 0.65
 
 
 # Run an inference on the passed image
@@ -56,7 +56,17 @@ def get_face_loc(vid_frame):
     face_locations = face_recognition.face_locations(vid_frame)
     print("I found {} face(s) in this photograph.".format(len(face_locations)))
     return face_locations
-    
+
+def new_coord(top, right, bottom, left):
+    width = right - left
+    height = bottom - top
+    top = int(top - height/8)
+    bottom = int(bottom + height/8)
+    left = int(left - width/8)
+    right = int(right + width/8)
+    print(top, right, bottom, left)
+    return (top, right, bottom, left)
+
 ## Extracts cropped face images from a video frame based on the face location coordinates given to it
 def extract_faces(vid_frame, face_locations):
     face_img_list=[]
@@ -65,6 +75,9 @@ def extract_faces(vid_frame, face_locations):
        # Print the location of each face in this image
       top, right, bottom, left = face_location
       print("A face is located at pixel location Top: {}, Left: {}, Bottom: {}, Right: {}".format(top, left, bottom, right))
+
+      top, right, bottom, left = new_coord(top, right, bottom, left)
+
 
       # You can access the actual face itself like this:
       face_image = vid_frame[top:bottom, left:right]
