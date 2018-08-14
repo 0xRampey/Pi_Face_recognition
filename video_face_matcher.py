@@ -15,8 +15,6 @@ EXAMPLES_BASE_DIR='../../'
 IMAGES_DIR = './'
 
 VALIDATED_IMAGES_DIR = IMAGES_DIR + 'validated_images/'
-FILENAME = 'prudhvi.jpg'
-validated_image_filename = VALIDATED_IMAGES_DIR + FILENAME
 
 GRAPH_FILENAME = "facenet_celeb_ncs.graph"
 
@@ -30,7 +28,7 @@ REQUEST_CAMERA_HEIGHT = 480
 # the same face will return 0.0
 # different faces return higher numbers
 # this is NOT between 0.0 and 1.0
-FACE_MATCH_THRESHOLD = 1.2
+FACE_MATCH_THRESHOLD = 0.85
 
 
 # Run an inference on the passed image
@@ -55,7 +53,7 @@ def run_inference(image_to_classify, facenet_graph):
 
 ## Returns any detected face locations for a video frame
 def get_face_loc(vid_frame):
-    face_locations = face_recognition.face_locations(vid_frame, model="cnn")
+    face_locations = face_recognition.face_locations(vid_frame)
     print("I found {} face(s) in this photograph.".format(len(face_locations)))
     return face_locations
     
@@ -69,7 +67,7 @@ def extract_faces(vid_frame, face_locations):
       print("A face is located at pixel location Top: {}, Left: {}, Bottom: {}, Right: {}".format(top, left, bottom, right))
 
       # You can access the actual face itself like this:
-      face_image = vid_frame[top-80:bottom+80, left-20:right+20]
+      face_image = vid_frame[top:bottom, left:right]
       face_img_list.append(face_image)
     return face_img_list
 
@@ -78,13 +76,12 @@ def extract_faces(vid_frame, face_locations):
 # image info is a text string to overlay onto the image.
 # matching is a Boolean specifying if the image was a match.
 # returns None
-def overlay_on_image(display_image, face_locations, image_info, matching, face_name):
+def overlay_on_image(display_image, face_locations, face_name):
     # rect_width = 10
     # offset = int(rect_width/2)
-    if (image_info != None):
-        cv2.putText(display_image, image_info, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-    if (matching):
-      for (top, right, bottom, left) in face_locations:
+    # if (image_info != None):
+    #     cv2.putText(display_image, image_info, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+    for (top, right, bottom, left) in face_locations:
 
         # Draw a box around the face
         cv2.rectangle(display_image, (left, top), (right, bottom), (0, 0, 255), 2)
@@ -135,7 +132,7 @@ def face_match(face1_output, face2_output):
     for output_index in range(0, len(face1_output)):
         this_diff = numpy.square(face1_output[output_index] - face2_output[output_index])
         total_diff += this_diff
-    print('Total Difference is: ' + str(total_diff))
+    print('Face threshold difference is: ' + str(total_diff))
 
     if (total_diff < FACE_MATCH_THRESHOLD):
         # the total difference between the two is under the threshold so
@@ -166,7 +163,7 @@ def handle_keys(raw_key):
 # graph is the ncsdk Graph object initialized with the facenet graph file
 #   which we will run the inference on.
 # returns None
-def run_camera(valid_output, validated_image_filename, graph):
+def run_camera(known_face_encodings, graph):
     camera_device = cv2.VideoCapture(CAMERA_INDEX)
     camera_device.set(cv2.CAP_PROP_FRAME_WIDTH, REQUEST_CAMERA_WIDTH)
     camera_device.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUEST_CAMERA_HEIGHT)
@@ -205,22 +202,25 @@ def run_camera(valid_output, validated_image_filename, graph):
         #Perform inference only when when you detect faces
         if(len(face_images)):
 
-          # get a resized version of the image that is the dimensions
-          # Facenet expects
-          resized_image = preprocess_image(face_images[0])
+          for face_idx, face in enumerate(face_images):
+            unknown = True
+            # get a resized version of the image that is the dimensions
+            # Facenet expects
+            resized_image = preprocess_image(face)
 
-          # run a single inference on the image and overwrite the
-          # boxes and labels
-          test_output = run_inference(resized_image, graph)
+            # run a single inference on the image and overwrite the
+            # boxes and labels
+            face_enc = run_inference(resized_image, graph)
+            for name, known_enc in known_face_encodings.items():
+                if (face_match(known_enc, face_enc)):
+                    print('PASS!  Found ' + name + '!')
+                    overlay_on_image(vid_image, [face_locations[face_idx]], name)
+                    unknown = False
+                    # Since we found a match for our face, lets move on to the next face found in the frame
+                    break
+            if (unknown):
+              overlay_on_image(vid_image, [face_locations[face_idx]], "Unknown")
 
-          if (face_match(valid_output, test_output)):
-              print('PASS!  File ' + frame_name + ' matches ' + validated_image_filename)
-              found_match = True
-          else:
-              found_match = False
-              print('FAIL!  File ' + frame_name + ' does not match ' + validated_image_filename)
-
-          overlay_on_image(vid_image, face_locations, frame_name, found_match, FILENAME)
         else:
             print("No faces detected :(")
 
@@ -239,9 +239,9 @@ def run_camera(valid_output, validated_image_filename, graph):
                 print('user pressed Q')
                 break
 
-    if (found_match):
-        cv2.imshow(CV_WINDOW_NAME, vid_image)
-        cv2.waitKey(0)
+    # if (found_match):
+    #     cv2.imshow(CV_WINDOW_NAME, vid_image)
+    #     cv2.waitKey(0)
 
 def load_known_face_encodings(img_dir, graph):
     known_face_enc={}
@@ -251,10 +251,10 @@ def load_known_face_encodings(img_dir, graph):
             print('No image files found')
             return 1
     for img in face_image_listings:
-        print(img)
         img_name = img.split(".")[0]
         img = cv2.imread(img_dir + img)
         print("Loading face encoding of " + img_name)
+        img = preprocess_image(img)
         known_face_enc[img_name] =  run_inference(img, graph)
     return known_face_enc
 
@@ -289,9 +289,9 @@ def main():
     # validated_image = preprocess_image(validated_image)
     # valid_output = run_inference(validated_image, graph)
 
-    print(load_known_face_encodings(VALIDATED_IMAGES_DIR, graph))
+    known_face_encodings = load_known_face_encodings(VALIDATED_IMAGES_DIR, graph)
 
-    run_camera(valid_output, validated_image_filename, graph)
+    run_camera(known_face_encodings, graph)
 
     # Clean up the graph and the device
     graph.DeallocateGraph()
