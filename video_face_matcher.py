@@ -194,8 +194,6 @@ def run_camera(known_face_encodings, graph):
 
     frame_count = 0
 
-    cv2.namedWindow(CV_WINDOW_NAME)
-
     found_match = False
 
     while True :
@@ -227,34 +225,21 @@ def run_camera(known_face_encodings, graph):
             for name, known_enc in known_face_encodings.items():
                 if (face_match(known_enc, face_enc)):
                     print('PASS!  Found ' + name + '!')
-                    overlay_on_image(vid_image, [face_locations[face_idx]], name)
                     unknown = False
                     # Since we found a match for our face, lets move on to the next face found in the frame
                     break
             if (unknown):
-              overlay_on_image(vid_image, [face_locations[face_idx]], "Unknown")
+              print("Don't know who the face is :(")
 
         else:
-            print("No faces detected :(")
+            print("No faces detected!")
 
-        # check if the window is visible, this means the user hasn't closed
-        # the window via the X button
-        prop_val = cv2.getWindowProperty(CV_WINDOW_NAME, cv2.WND_PROP_ASPECT_RATIO)
-        if (prop_val < 0.0):
-            print('window closed')
-            break
-
-        # display the results and wait for user to hit a key
-        cv2.imshow(CV_WINDOW_NAME, vid_image)
-        raw_key = cv2.waitKey(1)
+        raw_key = cv2.waitKey(0)
         if (raw_key != -1):
             if (handle_keys(raw_key) == False):
                 print('user pressed Q')
                 break
 
-    # if (found_match):
-    #     cv2.imshow(CV_WINDOW_NAME, vid_image)
-    #     cv2.waitKey(0)
 
 def load_known_face_encodings(img_dir, graph):
     known_face_enc={}

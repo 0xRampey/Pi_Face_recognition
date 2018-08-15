@@ -36,7 +36,7 @@ run_py: prereqs facenet
 	python3 ./video_face_matcher.py
 
 .PHONY: run
-run: prereqs facenet
+run:
 	@echo "\nmaking run"
 	python3 ./video_face_matcher.py
 
