@@ -195,16 +195,27 @@ def run_camera(known_face_encodings, graph):
     frame_count = 0
 
     found_match = False
+    print("Camera ready!")
+
+    process = False
 
     while True :
-        # Read image from camera,
-        ret_val, vid_image = camera_device.read()
+
+      # Read image from camera,
+      ret_val, vid_image = camera_device.read()
+      frame_count = frame_count + 1
+
+      if(frame_count % 25 == 0):
+          process = True
+
+
+      if (process):
+        print("Performing inference!")
+
+
         if (not ret_val):
             print("No image from camera, exiting")
             break
-
-        frame_count += 1
-        frame_name = 'camera frame ' + str(frame_count)
 
         #Extract faces found in the image
         face_locations = get_face_loc(vid_image)
@@ -234,11 +245,8 @@ def run_camera(known_face_encodings, graph):
         else:
             print("No faces detected!")
 
-        raw_key = cv2.waitKey(0)
-        if (raw_key != -1):
-            if (handle_keys(raw_key) == False):
-                print('user pressed Q')
-                break
+        process = False
+
 
 
 def load_known_face_encodings(img_dir, graph):
@@ -270,6 +278,7 @@ def main():
     # Pick the first stick to run the network
     device = mvnc.Device(devices[0])
 
+    print("Initializing NCS....")
     # Open the NCS
     device.OpenDevice()
 
@@ -280,6 +289,7 @@ def main():
     with open(graph_file_name, mode='rb') as f:
         graph_in_memory = f.read()
 
+    print("Loading graph file into NCS...")
     # create the NCAPI graph instance from the memory buffer containing the graph file.
     graph = device.AllocateGraph(graph_in_memory)
 
