@@ -10,6 +10,7 @@ import cv2
 import sys
 import os
 import face_recognition
+import pickle
 
 EXAMPLES_BASE_DIR='../../'
 IMAGES_DIR = './'
@@ -21,6 +22,8 @@ GRAPH_FILENAME = "facenet_celeb_ncs.graph"
 # name of the opencv window
 CV_WINDOW_NAME = "FaceNet"
 
+MODEL_PATH = './models/knn_model.clf'
+
 CAMERA_INDEX = 0
 REQUEST_CAMERA_WIDTH = 640
 REQUEST_CAMERA_HEIGHT = 480
@@ -28,7 +31,7 @@ REQUEST_CAMERA_HEIGHT = 480
 # the same face will return 0.0
 # different faces return higher numbers
 # this is NOT between 0.0 and 1.0
-FACE_MATCH_THRESHOLD = 0.65
+FACE_MATCH_THRESHOLD = 0.8
 
 
 # Run an inference on the passed image
@@ -167,6 +170,29 @@ def handle_keys(raw_key):
     return True
 
 
+def predict(face_encodings, distance_threshold):
+    """
+    Recognizes faces in given image using a trained KNN classifier
+    :param X_img_path: path to image to be recognized
+    :param knn_clf: (optional) a knn classifier object. if not specified, model_save_path must be specified.
+    :param model_path: (optional) path to a pickled knn classifier. if not specified, model_save_path must be knn_clf.
+    :param distance_threshold: (optional) distance threshold for face classification. the larger it is, the more chance
+           of mis-classifying an unknown person as a known one.
+    :return: a list of names and face locations for the recognized faces in the image: [(name, bounding box), ...].
+        For faces of unrecognized persons, the name 'unknown' will be returned.
+    """
+
+    with open(MODEL_PATH, 'rb') as f:
+        knn_clf = pickle.load(f)
+
+    # Use the KNN model to find the best matches for the test face
+    closest_distances = knn_clf.kneighbors(face_encodings, n_neighbors=1)
+    are_matches = [closest_distances[0][i][0] <=
+                   distance_threshold for i in range(len(face_encodings))]
+
+    # Predict classes and remove classifications that aren't within the threshold
+    return [(pred) if rec else ("unknown") for pred, rec in zip(knn_clf.predict(face_encodings), are_matches)]
+
 # start the opencv webcam streaming and pass each frame
 # from the camera to the facenet network for an inference
 # Continue looping until the result of the camera frame inference
@@ -224,23 +250,17 @@ def run_camera(known_face_encodings, graph):
         #Perform inference only when when you detect faces
         if(len(face_images)):
 
+          face_enc_list = []
           for face_idx, face in enumerate(face_images):
-            unknown = True
             # get a resized version of the image that is the dimensions
             # Facenet expects
             resized_image = preprocess_image(face)
-
             # run a single inference on the image and overwrite the
             # boxes and labels
             face_enc = run_inference(resized_image, graph)
-            for name, known_enc in known_face_encodings.items():
-                if (face_match(known_enc, face_enc)):
-                    print('PASS!  Found ' + name + '!')
-                    unknown = False
-                    # Since we found a match for our face, lets move on to the next face found in the frame
-                    break
-            if (unknown):
-              print("Don't know who the face is :(")
+            face_enc_list.append(face_enc)
+
+          print(predict(face_enc_list, FACE_MATCH_THRESHOLD))
 
         else:
             print("No faces detected!")
