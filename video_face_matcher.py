@@ -5,12 +5,14 @@
 
 
 from mvnc import mvncapi as mvnc
-import numpy
+import numpy as np
 import cv2
+import picamera
 import sys
 import os
 import face_recognition
 import pickle
+import RPi.GPIO as GPIO
 
 EXAMPLES_BASE_DIR='../../'
 IMAGES_DIR = './'
@@ -19,8 +21,7 @@ VALIDATED_IMAGES_DIR = IMAGES_DIR + 'validated_images/'
 
 GRAPH_FILENAME = "facenet_celeb_ncs.graph"
 
-# name of the opencv window
-CV_WINDOW_NAME = "FaceNet"
+BUTTON_GPIO_PIN = 24
 
 MODEL_PATH = './models/knn_model.clf'
 
@@ -45,7 +46,7 @@ def run_inference(image_to_classify, facenet_graph):
     # ***************************************************************
     # Send the image to the NCS
     # ***************************************************************
-    facenet_graph.LoadTensor(image_to_classify.astype(numpy.float16), None)
+    facenet_graph.LoadTensor(image_to_classify.astype(np.float16), None)
 
     # ***************************************************************
     # Get the result from the NCS
@@ -87,38 +88,12 @@ def extract_faces(vid_frame, face_locations):
       face_img_list.append(face_image)
     return face_img_list
 
-# overlays the boxes and labels onto the display image.
-# display_image is the image on which to overlay to
-# image info is a text string to overlay onto the image.
-# matching is a Boolean specifying if the image was a match.
-# returns None
-def overlay_on_image(display_image, face_locations, face_name):
-    # rect_width = 10
-    # offset = int(rect_width/2)
-    # if (image_info != None):
-    #     cv2.putText(display_image, image_info, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
-    for (top, right, bottom, left) in face_locations:
-
-        # Draw a box around the face
-        cv2.rectangle(display_image, (left, top), (right, bottom), (0, 0, 255), 2)
-
-        # Draw a label with a name below the face
-        cv2.rectangle(display_image, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
-        font = cv2.FONT_HERSHEY_DUPLEX
-        cv2.putText(display_image, face_name, (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
-    # else:
-    #     # not a match, red rectangle
-    #     cv2.rectangle(display_image, (0+offset, 0+offset),
-    #                   (display_image.shape[1]-offset-1, display_image.shape[0]-offset-1),
-    #                   (0, 0, 255), 10)
-
-
 # whiten an image
 def whiten_image(source_image):
-    source_mean = numpy.mean(source_image)
-    source_standard_deviation = numpy.std(source_image)
-    std_adjusted = numpy.maximum(source_standard_deviation, 1.0 / numpy.sqrt(source_image.size))
-    whitened_image = numpy.multiply(numpy.subtract(source_image, source_mean), 1 / std_adjusted)
+    source_mean = np.mean(source_image)
+    source_standard_deviation = np.std(source_image)
+    std_adjusted = np.maximum(source_standard_deviation, 1.0 / np.sqrt(source_image.size))
+    whitened_image = np.multiply(np.subtract(source_image, source_mean), 1 / std_adjusted)
     return whitened_image
 
 # create a preprocessed image from the source image that matches the
@@ -128,9 +103,6 @@ def preprocess_image(src):
     NETWORK_WIDTH = 160
     NETWORK_HEIGHT = 160
     preprocessed_image = cv2.resize(src, (NETWORK_WIDTH, NETWORK_HEIGHT))
-
-    #convert to RGB
-    preprocessed_image = cv2.cvtColor(preprocessed_image, cv2.COLOR_BGR2RGB)
 
     #whiten
     preprocessed_image = whiten_image(preprocessed_image)
@@ -146,7 +118,7 @@ def face_match(face1_output, face2_output):
         return False
     total_diff = 0
     for output_index in range(0, len(face1_output)):
-        this_diff = numpy.square(face1_output[output_index] - face2_output[output_index])
+        this_diff = np.square(face1_output[output_index] - face2_output[output_index])
         total_diff += this_diff
     print('Face threshold difference is: ' + str(total_diff))
 
@@ -202,87 +174,52 @@ def predict(face_encodings, distance_threshold):
 # graph is the ncsdk Graph object initialized with the facenet graph file
 #   which we will run the inference on.
 # returns None
-def run_camera(known_face_encodings, graph):
-    camera_device = cv2.VideoCapture(CAMERA_INDEX)
-    camera_device.set(cv2.CAP_PROP_FRAME_WIDTH, REQUEST_CAMERA_WIDTH)
-    camera_device.set(cv2.CAP_PROP_FRAME_HEIGHT, REQUEST_CAMERA_HEIGHT)
+def startWaitForBtnTrigger(camera, graph):
 
-    actual_camera_width = camera_device.get(cv2.CAP_PROP_FRAME_WIDTH)
-    actual_camera_height = camera_device.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    print ('actual camera resolution: ' + str(actual_camera_width) + ' x ' + str(actual_camera_height))
+    print("Waiting for button press!")
+    while(True):
+      button_state = GPIO.input(BUTTON_GPIO_PIN)
+      #If button trigger is pressed
+      if(button_state):
+          pic = np.empty((240, 320, 3), dtype=np.uint8)
+          print("Capturing image.")
+          # Grab a single frame of video from the RPi camera as a np array
+          camera.capture(pic, format="rgb")
 
-    if ((camera_device == None) or (not camera_device.isOpened())):
-        print ('Could not open camera.  Make sure it is plugged in.')
-        print ('Also, if you installed python opencv via pip or pip3 you')
-        print ('need to uninstall it and install from source with -D WITH_V4L=ON')
-        print ('Use the provided script: install-opencv-from_source.sh')
-        return
+          print("Performing inference!")
 
-    frame_count = 0
+          #Extract faces found in the image
+          face_locations = get_face_loc(pic)
+          face_images = extract_faces(pic, face_locations)
 
-    found_match = False
-    print("Camera ready!")
+          #Perform inference only when when you detect faces
+          if(len(face_images)):
 
-    process = False
+            face_enc_list = []
+            for face_idx, face in enumerate(face_images):
+              # get a resized version of the image that is the dimensions
+              # Facenet expects
+              resized_image = preprocess_image(face)
+              # run a single inference on the image and overwrite the
+              # boxes and labels
+              face_enc = run_inference(resized_image, graph)
+              face_enc_list.append(face_enc)
 
-    while True :
+            print(predict(face_enc_list, FACE_MATCH_THRESHOLD))
 
-      # Read image from camera,
-      ret_val, vid_image = camera_device.read()
-      frame_count = frame_count + 1
-
-      if(frame_count % 25 == 0):
-          process = True
-
-
-      if (process):
-        print("Performing inference!")
-
-
-        if (not ret_val):
-            print("No image from camera, exiting")
-            break
-
-        #Extract faces found in the image
-        face_locations = get_face_loc(vid_image)
-        face_images = extract_faces(vid_image, face_locations)
-
-        #Perform inference only when when you detect faces
-        if(len(face_images)):
-
-          face_enc_list = []
-          for face_idx, face in enumerate(face_images):
-            # get a resized version of the image that is the dimensions
-            # Facenet expects
-            resized_image = preprocess_image(face)
-            # run a single inference on the image and overwrite the
-            # boxes and labels
-            face_enc = run_inference(resized_image, graph)
-            face_enc_list.append(face_enc)
-
-          print(predict(face_enc_list, FACE_MATCH_THRESHOLD))
-
-        else:
+          else:
             print("No faces detected!")
 
-        process = False
 
+def initCamera():
+    camera = picamera.PiCamera()
+    camera.resolution = (320, 240)
+    print("Camera ready!")
+    return camera
 
-
-def load_known_face_encodings(img_dir, graph):
-    known_face_enc={}
-    dir_listings = os.listdir(img_dir)
-    face_image_listings = [i for i in dir_listings if i.endswith('.jpg')]
-    if (len(face_image_listings) < 1):
-            print('No image files found')
-            return 1
-    for img in face_image_listings:
-        img_name = img.split(".")[0]
-        img = cv2.imread(img_dir + img)
-        print("Loading face encoding of " + img_name)
-        img = preprocess_image(img)
-        known_face_enc[img_name] =  run_inference(img, graph)
-    return known_face_enc
+def setupBtnTrigger():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(BUTTON_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # This function is called from the entry point to do
 # all the work of the program
@@ -313,13 +250,11 @@ def main():
     # create the NCAPI graph instance from the memory buffer containing the graph file.
     graph = device.AllocateGraph(graph_in_memory)
 
-    # validated_image = cv2.imread(validated_image_filename)
-    # validated_image = preprocess_image(validated_image)
-    # valid_output = run_inference(validated_image, graph)
+    #Setting up camera and button trigger
+    camera = initCamera()
+    setupBtnTrigger()
 
-    known_face_encodings = load_known_face_encodings(VALIDATED_IMAGES_DIR, graph)
-
-    run_camera(known_face_encodings, graph)
+    startWaitForBtnTrigger(camera, graph)
 
     # Clean up the graph and the device
     graph.DeallocateGraph()
