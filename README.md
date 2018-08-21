@@ -15,10 +15,24 @@ First you need to install requirements for the following software,
 - dlib and face_recognition (https://gist.github.com/ageitgey/1ac8dbe8572f3f533df6269dab35df65)
 - NCS API (https://movidius.github.io/blog/ncs-apps-on-rpi/)
 
-Now, clone the repo into your Pi and run video_face_matcher.py. That's it!
+### Details
+[Button trigger] -> [Image capture] -> [Face detection] -> [Face recognition] ->  [Face classification]  
+
+A KNN classfier needs to be trained first on a set of known faces before we can start classifying.
+Update the known_faces directory with folders of people's names and their respective face pictures in these folders.  
+Then, clone the repo into your Pi.
 ```
 git clone https://github.com/prampey/Pi_Face_recognition.git
 cd Pi_Face_recognition
+```
+
+Now train the classifier:
+```
+python3 train_classifier.py
+```
+The classifer model will be generated in the model folder. Now you can run video_face_matcher.py.
+```
+
 python3 video_face_matcher.py 
 ```
 
