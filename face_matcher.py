@@ -152,13 +152,7 @@ def predict(face_encodings, distance_threshold):
 # graph is the ncsdk Graph object initialized with the facenet graph file
 #   which we will run the inference on.
 # returns None
-def run_face_rec(camera, graph):
-
-          pic = np.empty(ARGS.camera_res[::-1] + (3,), dtype=np.uint8)
-          print("Capturing image of size: ", pic.shape)
-          # Grab a single frame of video from the RPi camera as a np array
-          camera.capture(pic, format="rgb")
-
+def run_face_rec(pic, graph):
           #Extract faces found in the image
           face_locations = get_face_loc(pic)
           face_images = extract_faces(pic, face_locations)
@@ -181,6 +175,12 @@ def run_face_rec(camera, graph):
           else:
             print("No faces detected!")
 
+def capture_image(camera):
+    image = np.empty(ARGS.camera_res[::-1] + (3,), dtype=np.uint8)
+    print("Capturing image of size: ", image.shape)
+    # Grab a single frame of video from the RPi camera as a np array
+    camera.capture(image, format="rgb")
+    return image
 
 def initCamera():
     camera = picamera.PiCamera()
@@ -217,10 +217,14 @@ def main(ARGS):
     # create the NCAPI graph instance from the memory buffer containing the graph file.
     graph = device.AllocateGraph(graph_in_memory)
 
-    #Setting up camera and button trigger
-    camera = initCamera()
+    if(ARGS.picture):
+        image = cv2.imread(ARGS.picture)
+    else:
+        #Setting up camera and button trigger
+        camera = initCamera()
+        image = capture_image(camera)
 
-    run_face_rec(camera, graph)
+    run_face_rec(image, graph)
 
     # Clean up the graph and the device
     graph.DeallocateGraph()
@@ -240,6 +244,10 @@ if __name__ == "__main__":
                         nargs='+',
                         default=(320, 240),
                         help="Camera resolution (width, height) . ex. -C 320 240")
+
+    parser.add_argument('-p', '--picture', type=str,
+                        default="",
+                        help="Path to image to run inference on")
 
     parser.add_argument('-m', '--model_path', type=str,
                         default='./models/knn_model.clf',
