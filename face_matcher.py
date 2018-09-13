@@ -12,27 +12,7 @@ import sys
 import os
 import face_recognition
 import pickle
-
-EXAMPLES_BASE_DIR='../../'
-IMAGES_DIR = './'
-
-VALIDATED_IMAGES_DIR = IMAGES_DIR + 'validated_images/'
-
-GRAPH_FILENAME = "facenet_celeb_ncs.graph"
-
-BUTTON_GPIO_PIN = 24
-
-MODEL_PATH = './models/knn_model.clf'
-
-CAMERA_INDEX = 0
-REQUEST_CAMERA_WIDTH = 640
-REQUEST_CAMERA_HEIGHT = 480
-
-# the same face will return 0.0
-# different faces return higher numbers
-# this is NOT between 0.0 and 1.0
-FACE_MATCH_THRESHOLD = 0.8
-
+import argparse
 
 # Run an inference on the passed image
 # image_to_classify is the image on which an inference will be performed
@@ -121,7 +101,7 @@ def face_match(face1_output, face2_output):
         total_diff += this_diff
     print('Face threshold difference is: ' + str(total_diff))
 
-    if (total_diff < FACE_MATCH_THRESHOLD):
+    if (total_diff < ARGS.match_threshold):
         # the total difference between the two is under the threshold so
         # the faces match.
         return True
@@ -146,14 +126,13 @@ def predict(face_encodings, distance_threshold):
     Recognizes faces in given image using a trained KNN classifier
     :param X_img_path: path to image to be recognized
     :param knn_clf: (optional) a knn classifier object. if not specified, model_save_path must be specified.
-    :param model_path: (optional) path to a pickled knn classifier. if not specified, model_save_path must be knn_clf.
     :param distance_threshold: (optional) distance threshold for face classification. the larger it is, the more chance
            of mis-classifying an unknown person as a known one.
     :return: a list of names and face locations for the recognized faces in the image: [(name, bounding box), ...].
         For faces of unrecognized persons, the name 'unknown' will be returned.
     """
 
-    with open(MODEL_PATH, 'rb') as f:
+    with open(ARGS.model_path, 'rb') as f:
         knn_clf = pickle.load(f)
 
     # Use the KNN model to find the best matches for the test face
@@ -175,12 +154,10 @@ def predict(face_encodings, distance_threshold):
 # returns None
 def run_face_rec(camera, graph):
 
-          pic = np.empty((240, 320, 3), dtype=np.uint8)
-          print("Capturing image.")
+          pic = np.empty(ARGS.camera_res[::-1] + (3,), dtype=np.uint8)
+          print("Capturing image of size: ", pic.shape)
           # Grab a single frame of video from the RPi camera as a np array
           camera.capture(pic, format="rgb")
-
-          print("Performing inference!")
 
           #Extract faces found in the image
           face_locations = get_face_loc(pic)
@@ -199,7 +176,7 @@ def run_face_rec(camera, graph):
               face_enc = run_inference(resized_image, graph)
               face_enc_list.append(face_enc)
 
-            print(predict(face_enc_list, FACE_MATCH_THRESHOLD))
+            print(predict(face_enc_list, ARGS.match_threshold))
 
           else:
             print("No faces detected!")
@@ -207,13 +184,13 @@ def run_face_rec(camera, graph):
 
 def initCamera():
     camera = picamera.PiCamera()
-    camera.resolution = (320, 240)
+    camera.resolution = ARGS.camera_res
     print("Camera ready!")
     return camera
 
 # This function is called from the entry point to do
 # all the work of the program
-def main():
+def main(ARGS):
 
     # Get a list of ALL the sticks that are plugged in
     # we need at least one
@@ -230,7 +207,7 @@ def main():
     device.OpenDevice()
 
     # The graph file that was created with the ncsdk compiler
-    graph_file_name = GRAPH_FILENAME
+    graph_file_name = ARGS.graph_file
 
     # read in the graph file to memory buffer
     with open(graph_file_name, mode='rb') as f:
@@ -252,4 +229,25 @@ def main():
 
 # main entry point for program. we'll call main() to do what needs to be done.
 if __name__ == "__main__":
-    sys.exit(main())
+    parser = argparse.ArgumentParser(
+        description="Recognize faces")
+
+    parser.add_argument('-g', '--graph_file', type=str,
+                        default="facenet_celeb_ncs.graph",
+                        help="Path to the neural network graph file.")
+
+    parser.add_argument('-C', '--camera_res', type=int,
+                        nargs='+',
+                        default=(320, 240),
+                        help="Camera resolution (width, height) . ex. -C 320 240")
+
+    parser.add_argument('-m', '--model_path', type=str,
+                        default='./models/knn_model.clf',
+                        help="Path to a trained and pickled KNN classifier model")
+
+    parser.add_argument('-t', '--match_threshold', type=int,
+                        default=0.8,
+                        help="Distance threshold until which two faces can be considered the same")
+
+    ARGS = parser.parse_args()
+    sys.exit(main(ARGS))
