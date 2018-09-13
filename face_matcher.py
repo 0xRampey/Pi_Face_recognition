@@ -12,7 +12,6 @@ import sys
 import os
 import face_recognition
 import pickle
-import RPi.GPIO as GPIO
 
 EXAMPLES_BASE_DIR='../../'
 IMAGES_DIR = './'
@@ -174,13 +173,8 @@ def predict(face_encodings, distance_threshold):
 # graph is the ncsdk Graph object initialized with the facenet graph file
 #   which we will run the inference on.
 # returns None
-def startWaitForBtnTrigger(camera, graph):
+def run_face_rec(camera, graph):
 
-    print("Waiting for button press!")
-    while(True):
-      button_state = GPIO.input(BUTTON_GPIO_PIN)
-      #If button trigger is pressed
-      if(button_state):
           pic = np.empty((240, 320, 3), dtype=np.uint8)
           print("Capturing image.")
           # Grab a single frame of video from the RPi camera as a np array
@@ -217,10 +211,6 @@ def initCamera():
     print("Camera ready!")
     return camera
 
-def setupBtnTrigger():
-    GPIO.setmode(GPIO.BCM)
-    GPIO.setup(BUTTON_GPIO_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-
 # This function is called from the entry point to do
 # all the work of the program
 def main():
@@ -252,9 +242,8 @@ def main():
 
     #Setting up camera and button trigger
     camera = initCamera()
-    setupBtnTrigger()
 
-    startWaitForBtnTrigger(camera, graph)
+    run_face_rec(camera, graph)
 
     # Clean up the graph and the device
     graph.DeallocateGraph()
